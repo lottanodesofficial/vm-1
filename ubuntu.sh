@@ -4,7 +4,6 @@ set -euo pipefail
 # =============================
 # Ubuntu Auto Setup (Azimeee)
 # =============================
-
 clear
 cat << "EOF"
 ==============================================================
@@ -36,13 +35,13 @@ apt update -y && apt upgrade -y
 echo "[INFO] Installing essentials..."
 apt install -y \
     curl wget git vim htop unzip zip \
-    software-properties-common apt-transport-https ca-certificates gnupg lsb-release
+    software-properties-common apt-transport-https \
+    ca-certificates gnupg lsb-release net-tools iproute2
 
 # =============================
 # Docker Installation
 # =============================
 echo "[INFO] Installing Docker..."
-
 if ! command -v docker &> /dev/null; then
     curl -fsSL https://get.docker.com | sh
 else
@@ -56,7 +55,6 @@ systemctl start docker
 # Docker Compose Installation
 # =============================
 echo "[INFO] Installing Docker Compose..."
-
 if ! command -v docker-compose &> /dev/null; then
     DOCKER_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d '"' -f 4)
     curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" \
@@ -67,21 +65,39 @@ else
 fi
 
 # =============================
-# Create Non-root User (gg)
-# =============================
-echo "[INFO] Creating user 'gg'..."
-id -u gg &>/dev/null || useradd -m -s /bin/bash gg
-
-# =============================
-# Pull & Run Ubuntu Container
+# Launch Ubuntu Container as root@nebulacloud
 # =============================
 echo "[INFO] Pulling Ubuntu image..."
 docker pull ubuntu:22.04
 
-echo "[INFO] Launching Ubuntu shell as gg@azimee..."
-exec docker run -it --rm --hostname azimee ubuntu:22.04 /bin/bash -c "
-    apt update -y >/dev/null 2>&1 && apt install -y sudo >/dev/null 2>&1
-    useradd -m -s /bin/bash gg
-    echo 'gg ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-    su - gg
+echo "[INFO] Launching Ubuntu shell as root@nebulacloud..."
+
+exec docker run -it --rm \
+    --hostname nebulacloud \
+    ubuntu:22.04 /bin/bash -c "
+    export DEBIAN_FRONTEND=noninteractive
+    apt update -y >/dev/null 2>&1 && apt install -y sudo net-tools vim lsb-release >/dev/null 2>&1
+    echo 'root:root' | chpasswd
+
+    # Real MOTD with IP
+    IP=\$(hostname -I | awk '{print \$1}')
+    cat > /etc/motd <<EOM
+
+Welcome to Ubuntu \$(lsb_release -rs) LTS (\$(uname -r))
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+  System information as of \$(date)
+
+  System load:  \$(uptime | awk -F'load average:' '{ print \$2 }')
+  Usage of /:   \$(df -h / | awk 'NR==2 {print \$5 \" of \" \$2}')
+  Memory usage: \$(free -m | awk 'NR==2{printf \"%s%%\", \$3*100/\$2 }')
+  Swap usage:   \$(free -m | awk 'NR==3{printf \"%s%%\", \$3*100/\$2 }')
+  IP address:   \$IP
+
+EOM
+
+    bash --login
 "
